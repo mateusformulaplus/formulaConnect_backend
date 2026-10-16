@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Backend Fastify REST API com Prisma ORM e PostgreSQL para Fórmula Plus Conecta",
-  "main": "src/server.ts",
+  "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/src/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

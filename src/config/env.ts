@@ -1,12 +1,10 @@
 import dotenv from 'dotenv';
-import path from 'node:path';
 import { z } from 'zod';
 
-const envFile = path.resolve(__dirname, '../../.env');
-const dotenvResult = dotenv.config({ path: envFile });
+const dotenvResult = dotenv.config();
 
-if (dotenvResult.error) {
-  console.error(`❌ Não foi possível carregar o arquivo de ambiente ${envFile}:`, dotenvResult.error);
+if (dotenvResult.error && !('code' in dotenvResult.error && dotenvResult.error.code === 'ENOENT')) {
+  console.error('❌ Não foi possível carregar o arquivo de ambiente:', dotenvResult.error);
 }
 
 const envSchema = z.object({
