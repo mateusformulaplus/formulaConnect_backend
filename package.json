@@ -2,6 +2,7 @@
   "name": "formula-plus-conecta-backend",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Backend Fastify REST API com Prisma ORM e PostgreSQL para Fórmula Plus Conecta",
   "main": "dist/src/server.js",
   "scripts": {

@@ -3,9 +3,9 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import { CommercialStatus, ContactType, EventStatus, Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { env } from './config/env.js';
+import { env } from './config/env.ts';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
