@@ -134,7 +134,13 @@ const eventPatchSchema = eventFieldsSchema.partial().refine((event) => (
 export async function buildApp() {
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: env.FRONTEND_URL });
+  const allowedOrigins = new Set([
+    'https://formulaconnect.vercel.app',
+    ...env.FRONTEND_URL.split(',').map((origin) => origin.trim()).filter(Boolean),
+  ]);
+  await app.register(cors, {
+    origin: (origin, callback) => callback(null, origin ? allowedOrigins.has(origin) : false),
+  });
   await app.register(jwt, { secret: env.JWT_SECRET, sign: { expiresIn: '7d' } });
   await app.register(rateLimit, { global: false });
   app.addHook('onClose', async () => prisma.$disconnect());
