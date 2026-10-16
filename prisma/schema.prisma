@@ -1,0 +1,123 @@
+// Prisma Schema para Fórmula Plus Conecta
+// Banco de dados relacional PostgreSQL
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum ContactType {
+  influencer
+  health_professional
+  pharmacy_business
+  distributor_rep
+  business_partner
+}
+
+enum CommercialStatus {
+  novo_contato
+  aguardando_analise
+  contato_realizado
+  em_negociacao
+  parceria_concluida
+  sem_interesse
+}
+
+enum EventStatus {
+  planejado
+  em_andamento
+  encerrado
+}
+
+model AdminUser {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  assignedLeads Lead[]        @relation("AssignedLeads")
+  leadHistories LeadHistory[]
+
+  @@map("admin_users")
+}
+
+model Event {
+  id          String      @id @default(uuid())
+  name        String
+  description String?
+  location    String?
+  startDate   DateTime
+  endDate     DateTime
+  status      EventStatus @default(planejado)
+  publicSlug  String      @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  leads       Lead[]
+
+  @@index([status])
+  @@index([publicSlug])
+  @@map("events")
+}
+
+model Lead {
+  id                   String           @id @default(uuid())
+  fullName             String
+  email                String?
+  whatsapp             String
+  normalizedWhatsapp   String
+  city                 String
+  state                String
+  professionalProfile  String?
+  contactType          ContactType
+  commercialStatus     CommercialStatus @default(novo_contato)
+  notes                String?
+  marketingConsent     Boolean          @default(false)
+  consentAt            DateTime?
+  consentNoticeVersion String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  eventId              String?
+  event                Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  assignedToId         String?
+  assignedTo           AdminUser?       @relation("AssignedLeads", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  history              LeadHistory[]
+
+  @@index([fullName])
+  @@index([email])
+  @@index([whatsapp])
+  @@index([normalizedWhatsapp])
+  @@index([contactType])
+  @@index([commercialStatus])
+  @@index([createdAt])
+  @@index([eventId])
+  @@map("leads")
+}
+
+model LeadHistory {
+  id            String     @id @default(uuid())
+  leadId        String
+  lead          Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  adminUserId   String?
+  adminUser     AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  action        String
+  previousValue String?
+  newValue      String?
+  createdAt     DateTime   @default(now())
+
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("lead_history")
+}
