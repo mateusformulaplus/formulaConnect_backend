@@ -168,6 +168,14 @@ export async function buildApp() {
     return user;
   });
 
+
+  app.get("/api/health", async () => {
+    return {
+        status: "ok"
+    }
+})
+
+
   app.get('/api/admin/users', { preHandler: authenticate }, async () => (
     prisma.adminUser.findMany({
       select: { id: true, name: true, email: true, createdAt: true, updatedAt: true },
