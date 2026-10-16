@@ -135,7 +135,7 @@ export async function buildApp() {
   const app = Fastify({ logger: true });
 
   await app.register(cors, { origin: env.FRONTEND_URL });
-  await app.register(jwt, { secret: env.JWT_SECRET, sign: { expiresIn: '8h' } });
+  await app.register(jwt, { secret: env.JWT_SECRET, sign: { expiresIn: '7d' } });
   await app.register(rateLimit, { global: false });
   app.addHook('onClose', async () => prisma.$disconnect());
 
