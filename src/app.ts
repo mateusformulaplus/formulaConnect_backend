@@ -506,7 +506,7 @@ export async function buildApp() {
       subtitle: z.string().trim().max(200).optional().nullable(),
       description: z.string().trim().max(5000).optional().nullable(),
       price: z.string().trim().max(50).optional().nullable(),
-      imageUrl: productImageSchema.optional().nullable(),
+      imageUrl: productImageSchema.optional().nullable().or(z.literal('')),
       images: z.array(productImageSchema).max(5).optional(),
       active: z.boolean().optional(),
       sortOrder: z.coerce.number().int().min(0).optional(),
