@@ -152,12 +152,19 @@ export async function buildApp() {
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error(error);
-    const statusCode = error.statusCode && error.statusCode >= 400 && error.statusCode < 500
+    const statusCode = error instanceof Error
+      && 'statusCode' in error
+      && typeof error.statusCode === 'number'
+      && error.statusCode >= 400
+      && error.statusCode < 500
       ? error.statusCode
       : 500;
+    const errorMessage = error instanceof Error && statusCode !== 500
+      ? error.message
+      : 'Erro interno do servidor.';
 
     return reply.code(statusCode).send({
-      error: statusCode === 500 ? 'Erro interno do servidor.' : error.message,
+      error: errorMessage,
     });
   });
 
