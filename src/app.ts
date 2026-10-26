@@ -174,6 +174,7 @@ export async function buildApp() {
   ]);
   await app.register(cors, {
     origin: (origin, callback) => callback(null, origin ? allowedOrigins.has(origin) : false),
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
   await app.register(jwt, { secret: env.JWT_SECRET, sign: { expiresIn: '7d' } });
   await app.register(rateLimit, { global: false });
