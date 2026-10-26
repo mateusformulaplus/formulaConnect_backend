@@ -108,6 +108,9 @@ model ShopOrder {
   source        String   @default("manual")
   qrCodeNumber  String?
   message       String?
+  qrTrackingToken String?  @unique
+  qrScanCount      Int      @default(0)
+  qrLastScannedAt DateTime?
   createdAt     DateTime @default(now())
 
   @@index([createdAt])
