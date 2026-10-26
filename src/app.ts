@@ -530,15 +530,19 @@ export async function buildApp() {
   });
 
   app.delete<{ Params: { id: string } }>('/api/shop/admin/products/:id', { preHandler: authenticate }, async (request, reply) => {
-    try {
-      await prisma.shopProduct.delete({ where: { id: request.params.id } });
-      return { success: true, message: 'Produto removido com sucesso.' };
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-        return reply.code(404).send({ error: 'Produto não encontrado.' });
-      }
-      throw error;
+    const productId = request.params.id;
+    const deleted = await prisma.$transaction(async (tx) => {
+      await tx.shopOrder.updateMany({
+        where: { productId },
+        data: { productId: null },
+      });
+      return tx.shopProduct.deleteMany({ where: { id: productId } });
+    });
+
+    if (deleted.count === 0) {
+      return reply.code(404).send({ error: 'Produto não encontrado.' });
     }
+    return { success: true, message: 'Produto removido com sucesso.' };
   });
 
   app.get('/api/leads', { preHandler: authenticate }, async (request, reply) => {
