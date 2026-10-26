@@ -663,12 +663,20 @@ export async function buildApp() {
         newValue: input.data.assignedToId || 'Sem responsável',
       });
     }
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.lead.update({ where: { id: previous.id }, data: input.data });
-      if (history.length) await tx.leadHistory.createMany({ data: history });
-      return tx.lead.findUniqueOrThrow({ where: { id: previous.id }, include: leadInclude });
-    });
-    return serializeLead(updated);
+    await prisma.lead.update({ where: { id: previous.id }, data: input.data });
+
+    let historySaved = true;
+    if (history.length) {
+      try {
+        await prisma.leadHistory.createMany({ data: history });
+      } catch (error) {
+        historySaved = false;
+        request.log.error({ err: error, leadId: previous.id }, 'Não foi possível registrar o histórico do lead.');
+      }
+    }
+
+    const updated = await prisma.lead.findUniqueOrThrow({ where: { id: previous.id }, include: leadInclude });
+    return { ...serializeLead(updated), historySaved };
   });
 
   app.delete<{ Params: { id: string } }>('/api/leads/:id', { preHandler: authenticate }, async (request, reply) => {
