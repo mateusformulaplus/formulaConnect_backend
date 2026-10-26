@@ -61,13 +61,24 @@ function normalizePhone(phone: string): string {
   return digits;
 }
 
+function isLegacyBrazilianMobile(phone: string): boolean {
+  const digits = phone.replace(/\D/g, '');
+  const local = digits.startsWith('55') && (digits.length === 12 || digits.length === 13)
+    ? digits.slice(2)
+    : digits;
+  return local.length === 10 && '6789'.includes(local[2] || '');
+}
+
 function isValidBrazilianPhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, '');
   const local = digits.startsWith('55') && (digits.length === 12 || digits.length === 13)
     ? digits.slice(2)
     : digits;
   const ddd = Number(local.slice(0, 2));
-  return (local.length === 10 || (local.length === 11 && local[2] === '9')) && ddd >= 11 && ddd <= 99;
+  return (
+    (local.length === 10 && '2345'.includes(local[2] || ''))
+    || (local.length === 11 && local[2] === '9')
+  ) && ddd >= 11 && ddd <= 99;
 }
 
 function makeSlug(value: string): string {
@@ -81,6 +92,11 @@ function parseDateFilter(value: unknown, endOfDay = false): Date | undefined {
   if (Number.isNaN(date.getTime())) return undefined;
   if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value)) date.setUTCHours(23, 59, 59, 999);
   return date;
+}
+
+function buildWhatsAppLink(phone: string, message: string): string {
+  const normalized = normalizePhone(phone);
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
 }
 
 type LeadWithRelations = Prisma.LeadGetPayload<{ include: typeof leadInclude }>;
@@ -132,7 +148,18 @@ const eventPatchSchema = eventFieldsSchema.partial().refine((event) => (
 });
 
 export async function buildApp() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, bodyLimit: 8 * 1024 * 1024 });
+
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error(error);
+    const statusCode = error.statusCode && error.statusCode >= 400 && error.statusCode < 500
+      ? error.statusCode
+      : 500;
+
+    return reply.code(statusCode).send({
+      error: statusCode === 500 ? 'Erro interno do servidor.' : error.message,
+    });
+  });
 
   const allowedOrigins = new Set([
     'https://formulaconnect.vercel.app',
@@ -258,6 +285,253 @@ export async function buildApp() {
       message: 'Cadastro realizado com sucesso!',
       leadId: lead.id,
     });
+  });
+
+  app.get('/api/shop/config', async () => {
+    const config = await prisma.shopConfig.findFirst({ where: { active: true }, orderBy: { createdAt: 'desc' } });
+    if (config) return config;
+    return {
+      id: 'default',
+      businessName: 'Fórmula Plus',
+      whatsapp: '5511999999999',
+      defaultMessage: 'Olá! Gostaria de saber mais sobre os produtos da Fórmula Plus.',
+      qrCodeNumber: '123456',
+      active: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  app.get('/api/shop/products', async () => {
+    const products = await prisma.shopProduct.findMany({
+      where: { active: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    return products;
+  });
+
+  app.post<{ Body: Record<string, unknown> }>('/api/shop/orders', {
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const schema = z.object({
+      customerName: z.string().trim().min(2),
+      email: z.string().trim().email().optional().or(z.literal('')),
+      whatsapp: z.string().trim().min(8).optional().or(z.literal('')),
+      productName: z.string().trim().min(2),
+      productId: z.string().optional(),
+      quantity: z.coerce.number().int().min(1).max(99).default(1),
+      source: z.enum(['qr', 'manual']).default('manual'),
+      qrCodeNumber: z.string().trim().optional(),
+      message: z.string().trim().optional(),
+    }).strict();
+
+    const input = schema.safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'Dados do pedido inválidos.' });
+    if (input.data.whatsapp && !isValidBrazilianPhone(input.data.whatsapp)) {
+      return reply.code(400).send({ error: 'Informe um WhatsApp válido com DDD.' });
+    }
+
+    const config = await prisma.shopConfig.findFirst({ where: { active: true }, orderBy: { createdAt: 'desc' } });
+    const order = await prisma.shopOrder.create({
+      data: {
+        customerName: input.data.customerName,
+        email: input.data.email || null,
+        whatsapp: input.data.whatsapp?.trim() || '',
+        productName: input.data.productName,
+        productId: input.data.productId || null,
+        quantity: input.data.quantity,
+        source: input.data.source,
+        qrCodeNumber: input.data.qrCodeNumber || null,
+        message: input.data.message || null,
+      },
+    });
+
+    const whatsappBaseMessage = input.data.message || config?.defaultMessage || 'Olá! Gostaria de saber mais sobre os produtos da Fórmula Plus.';
+    const shareableLink = config ? buildWhatsAppLink(config.whatsapp, whatsappBaseMessage) : '';
+
+    return reply.code(201).send({
+      success: true,
+      orderId: order.id,
+      whatsappLink: shareableLink,
+      message: 'Pedido registrado com sucesso.',
+    });
+  });
+
+  app.get('/api/shop/admin/orders', { preHandler: authenticate }, async () => {
+    return prisma.shopOrder.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  });
+
+  app.get('/api/shop/admin/config', { preHandler: authenticate }, async () => {
+    const config = await prisma.shopConfig.findFirst({ orderBy: { createdAt: 'desc' } });
+    if (config) return config;
+    return {
+      id: '',
+      businessName: 'Fórmula Plus',
+      whatsapp: '5511999999999',
+      defaultMessage: 'Olá! Gostaria de saber mais sobre os produtos da Fórmula Plus.',
+      qrCodeNumber: '123456',
+      active: true,
+      createdAt: null,
+      updatedAt: null,
+    };
+  });
+
+  app.post<{ Body: Record<string, unknown> }>('/api/shop/admin/config', { preHandler: authenticate }, async (request, reply) => {
+    const schema = z.object({
+      businessName: z.string().trim().min(2).max(120).optional(),
+      whatsapp: z.string().trim().min(8).max(30),
+      defaultMessage: z.string().trim().min(10).max(500).optional(),
+      qrCodeNumber: z.string().trim().min(1).max(20),
+      active: z.boolean().optional(),
+    }).strict();
+    const input = schema.safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'Configuração da loja inválida.' });
+    if (isLegacyBrazilianMobile(input.data.whatsapp)) {
+      return reply.code(400).send({
+        error: 'Este celular está no formato antigo, com 8 dígitos após o DDD. Informe o número atual com 9 dígitos.',
+      });
+    }
+    if (!isValidBrazilianPhone(input.data.whatsapp)) {
+      return reply.code(400).send({ error: 'WhatsApp da loja deve ser válido com DDD.' });
+    }
+
+    const existing = await prisma.shopConfig.findFirst({ orderBy: { createdAt: 'desc' } });
+    const payload = {
+      businessName: input.data.businessName || existing?.businessName || 'Fórmula Plus',
+      whatsapp: normalizePhone(input.data.whatsapp),
+      defaultMessage: input.data.defaultMessage || existing?.defaultMessage || 'Olá! Gostaria de saber mais sobre os produtos da Fórmula Plus.',
+      qrCodeNumber: input.data.qrCodeNumber,
+      active: input.data.active ?? true,
+    };
+
+    try {
+      if (existing) {
+        const updated = await prisma.shopConfig.update({
+          where: { id: existing.id },
+          data: payload,
+        });
+        return updated;
+      }
+
+      const created = await prisma.shopConfig.create({ data: payload });
+      return reply.code(201).send(created);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return reply.code(409).send({ error: 'Já existe um código QR ativo com esse valor.' });
+      }
+      throw error;
+    }
+  });
+
+  app.get('/api/shop/admin/products', { preHandler: authenticate }, async () => {
+    const products = await prisma.shopProduct.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
+    return products;
+  });
+
+  const productImageSchema = z.string().trim().min(1).refine(
+    (image) => image.length <= 500
+      || (
+        image.length <= 1_400_000
+        && /^data:image\/(?:jpeg|png|webp|gif|avif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)
+      ),
+    'Imagem deve ser uma URL de até 500 caracteres ou uma imagem JPG, PNG, WebP, GIF ou AVIF de até 1 MB.',
+  );
+
+  app.post<{ Body: Record<string, unknown> }>('/api/shop/admin/products', { preHandler: authenticate }, async (request, reply) => {
+    const schema = z.object({
+      name: z.string().trim().min(2).max(120),
+      subtitle: z.string().trim().max(200).optional().or(z.literal('')),
+      description: z.string().trim().max(5000).optional().or(z.literal('')),
+      price: z.string().trim().max(50).optional().or(z.literal('')),
+      imageUrl: productImageSchema.optional().or(z.literal('')),
+      images: z.array(productImageSchema).max(5).default([]),
+      active: z.boolean().default(true),
+      sortOrder: z.coerce.number().int().min(0).default(0),
+    }).strict();
+    const input = schema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({
+        error: 'Dados do produto inválidos.',
+        details: input.error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const normalizedImages = [...new Set((input.data.images || []).map((item) => item.trim()).filter(Boolean))];
+    const product = await prisma.shopProduct.create({
+      data: {
+        name: input.data.name,
+        subtitle: input.data.subtitle || null,
+        description: input.data.description || null,
+        price: input.data.price || '',
+        imageUrl: input.data.imageUrl || normalizedImages[0] || null,
+        images: normalizedImages.length ? normalizedImages : input.data.imageUrl ? [input.data.imageUrl] : [],
+        active: input.data.active,
+        sortOrder: input.data.sortOrder,
+      },
+    });
+    return reply.code(201).send(product);
+  });
+
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/shop/admin/products/:id', {
+    preHandler: authenticate,
+  }, async (request, reply) => {
+    const schema = z.object({
+      name: z.string().trim().min(2).max(120).optional(),
+      subtitle: z.string().trim().max(200).optional().nullable(),
+      description: z.string().trim().max(5000).optional().nullable(),
+      price: z.string().trim().max(50).optional().nullable(),
+      imageUrl: productImageSchema.optional().nullable(),
+      images: z.array(productImageSchema).max(5).optional(),
+      active: z.boolean().optional(),
+      sortOrder: z.coerce.number().int().min(0).optional(),
+    }).strict();
+    const input = schema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({
+        error: 'Dados de atualização inválidos.',
+        details: input.error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+
+    try {
+      const normalizedImages = input.data.images ? [...new Set(input.data.images.map((item) => item.trim()).filter(Boolean))] : undefined;
+      const payload = {
+        ...input.data,
+        price: input.data.price ?? undefined,
+        imageUrl: input.data.imageUrl ?? undefined,
+        images: normalizedImages,
+      };
+      const product = await prisma.shopProduct.update({
+        where: { id: request.params.id },
+        data: payload,
+      });
+      return product;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        return reply.code(404).send({ error: 'Produto não encontrado.' });
+      }
+      throw error;
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/shop/admin/products/:id', { preHandler: authenticate }, async (request, reply) => {
+    try {
+      await prisma.shopProduct.delete({ where: { id: request.params.id } });
+      return { success: true, message: 'Produto removido com sucesso.' };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        return reply.code(404).send({ error: 'Produto não encontrado.' });
+      }
+      throw error;
+    }
   });
 
   app.get('/api/leads', { preHandler: authenticate }, async (request, reply) => {

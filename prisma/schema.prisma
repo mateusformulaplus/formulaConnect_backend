@@ -67,6 +67,53 @@ model Event {
   @@map("events")
 }
 
+model ShopConfig {
+  id              String   @id @default(uuid())
+  businessName    String   @default("Fórmula Plus")
+  whatsapp        String
+  defaultMessage  String   @default("Olá! Gostaria de saber mais sobre os produtos da Fórmula Plus.")
+  qrCodeNumber    String   @unique
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("shop_configs")
+}
+
+model ShopProduct {
+  id          String   @id @default(uuid())
+  name        String
+  subtitle    String?
+  description String?
+  price       String   @default("")
+  imageUrl    String?
+  images      String[] @default([])
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, sortOrder])
+  @@map("shop_products")
+}
+
+model ShopOrder {
+  id            String   @id @default(uuid())
+  customerName  String
+  email         String?
+  whatsapp      String?
+  productName   String
+  productId     String?
+  quantity      Int      @default(1)
+  source        String   @default("manual")
+  qrCodeNumber  String?
+  message       String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("shop_orders")
+}
+
 model Lead {
   id                   String           @id @default(uuid())
   fullName             String

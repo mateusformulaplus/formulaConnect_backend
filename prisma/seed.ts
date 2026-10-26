@@ -20,6 +20,72 @@ async function main() {
 
   console.log(`✅ Administrador cadastrado: ${admin.email}`);
 
+  const shopConfig = await prisma.shopConfig.upsert({
+    where: { qrCodeNumber: '123456' },
+    update: {},
+    create: {
+      businessName: 'Fórmula Plus',
+      whatsapp: '5511999999999',
+      defaultMessage: 'Olá! Gostaria de saber mais sobre os produtos da Fórmula Plus.',
+      qrCodeNumber: '123456',
+    },
+  });
+
+  const products = [
+    {
+      name: 'Sérum Vitamina C',
+      subtitle: 'Brilho e luminosidade',
+      description: 'Sérum antioxidante para pele com aparência revitalizada.',
+      price: 'R$ 149,00',
+      sortOrder: 1,
+      images: [
+        'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=900&q=80',
+        'https://images.unsplash.com/photo-1556228578-8c89e6adf883?auto=format&fit=crop&w=900&q=80',
+      ],
+    },
+    {
+      name: 'Sérum Hialurônico',
+      subtitle: 'Hidratação intensa',
+      description: 'Auxilia na hidratação e suavidade imediata da pele.',
+      price: 'R$ 169,00',
+      sortOrder: 2,
+      images: [
+        'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=900&q=80',
+        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80',
+      ],
+    },
+    {
+      name: 'Sérum Retinol',
+      subtitle: 'Lifting e renovação',
+      description: 'Ajuda a reduzir sinais de expressão e melhorar textura.',
+      price: 'R$ 189,00',
+      sortOrder: 3,
+      images: [
+        'https://images.unsplash.com/photo-1515377905703-c4788e51af15?auto=format&fit=crop&w=900&q=80',
+        'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=900&q=80',
+      ],
+    },
+  ];
+
+  for (const product of products) {
+    const existingProduct = await prisma.shopProduct.findFirst({ where: { name: product.name } });
+    if (!existingProduct) {
+      await prisma.shopProduct.create({
+        data: {
+          name: product.name,
+          subtitle: product.subtitle,
+          description: product.description,
+          price: product.price,
+          imageUrl: product.images[0],
+          images: product.images,
+          sortOrder: product.sortOrder,
+        },
+      });
+    }
+  }
+
+  console.log(`✅ Loja configurada: ${shopConfig.businessName} | código ${shopConfig.qrCodeNumber}`);
+
   // 2. Eventos Iniciais
   const event1 = await prisma.event.upsert({
     where: { publicSlug: 'consulfarma-2026' },

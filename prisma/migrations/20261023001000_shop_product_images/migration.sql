@@ -1,0 +1,2 @@
+ALTER TABLE "shop_products"
+ADD COLUMN "images" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
