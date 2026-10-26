@@ -3,7 +3,6 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import { CommercialStatus, ContactType, EventStatus, Prisma, PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import { randomBytes } from 'node:crypto';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { env } from './config/env.ts';
@@ -365,84 +364,9 @@ export async function buildApp() {
     });
   });
 
-  app.get<{ Params: { token: string } }>('/api/shop/qr/:token', {
-    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
-  }, async (request, reply) => {
-    reply.header('Cache-Control', 'no-store');
-    const { token } = request.params;
-    const order = await prisma.shopOrder.findUnique({ where: { qrTrackingToken: token } });
-    if (!order) return reply.code(404).send({ error: 'QR code não encontrado ou inválido.' });
-
-    const config = await prisma.shopConfig.findFirst({
-      where: { active: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!config) return reply.code(503).send({ error: 'Atendimento da loja indisponível no momento.' });
-
-    await prisma.shopOrder.update({
-      where: { id: order.id },
-      data: {
-        qrScanCount: { increment: 1 },
-        qrLastScannedAt: new Date(),
-      },
-    });
-
-    const message = [
-      config.defaultMessage,
-      '',
-      `Olá! Tenho interesse no produto ${order.productName}.`,
-      `Nome: ${order.customerName}`,
-      `Quantidade: ${order.quantity}`,
-      ...(order.whatsapp ? [`WhatsApp: ${order.whatsapp}`] : []),
-      ...(order.email ? [`E-mail: ${order.email}`] : []),
-    ].join('\n');
-    return reply.redirect(buildWhatsAppLink(config.whatsapp, message));
-  });
-
   app.get('/api/shop/admin/orders', { preHandler: authenticate }, async () => {
-    const orders = await prisma.shopOrder.findMany({
+    return prisma.shopOrder.findMany({
       orderBy: { createdAt: 'desc' },
-    });
-    return orders.map(({ qrTrackingToken, ...order }) => ({
-      ...order,
-      qrTrackingEnabled: Boolean(qrTrackingToken),
-    }));
-  });
-
-  app.post<{ Params: { orderId: string } }>('/api/shop/admin/orders/:orderId/qr', {
-    preHandler: authenticate,
-  }, async (request, reply) => {
-    const { orderId } = request.params;
-    const order = await prisma.shopOrder.findUnique({
-      where: { id: orderId },
-      select: { id: true, qrTrackingToken: true, qrScanCount: true, qrLastScannedAt: true },
-    });
-    if (!order) return reply.code(404).send({ error: 'Cliente não encontrado.' });
-
-    let token = order.qrTrackingToken;
-    if (!token) {
-      const candidate = randomBytes(32).toString('hex');
-      await prisma.shopOrder.updateMany({
-        where: { id: order.id, qrTrackingToken: null },
-        data: { qrTrackingToken: candidate },
-      });
-      const updatedOrder = await prisma.shopOrder.findUniqueOrThrow({
-        where: { id: order.id },
-        select: { qrTrackingToken: true, qrScanCount: true, qrLastScannedAt: true },
-      });
-      token = updatedOrder.qrTrackingToken;
-      if (!token) throw new Error('Não foi possível criar o link rastreável do QR code.');
-      return reply.send({
-        url: `/api/shop/qr/${token}`,
-        qrScanCount: updatedOrder.qrScanCount,
-        qrLastScannedAt: updatedOrder.qrLastScannedAt,
-      });
-    }
-
-    return reply.send({
-      url: `/api/shop/qr/${token}`,
-      qrScanCount: order.qrScanCount,
-      qrLastScannedAt: order.qrLastScannedAt,
     });
   });
 
