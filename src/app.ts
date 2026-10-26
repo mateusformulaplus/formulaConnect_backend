@@ -664,11 +664,29 @@ export async function buildApp() {
   }, async (request, reply) => {
     const schema = z.object({
       commercialStatus: z.nativeEnum(CommercialStatus).optional(),
-      notes: z.string().nullable().optional(),
+      notes: z.string().trim().nullable().optional(),
       assignedToId: z.string().nullable().optional(),
+      fullName: z.string().trim().min(2, 'Informe o nome completo.').optional(),
+      email: z.string().trim().email('Informe um e-mail válido.').or(z.literal('')).nullable().optional(),
+      whatsapp: z.string().trim().min(1, 'Informe um WhatsApp válido.').optional(),
+      city: z.string().trim().min(2, 'Informe uma cidade válida.').optional(),
+      state: z.string().trim().length(2, 'Informe a UF com duas letras.').optional(),
+      professionalProfile: z.string().trim().nullable().optional(),
+      contactType: z.nativeEnum(ContactType).optional(),
     }).strict();
     const input = schema.safeParse(request.body);
-    if (!input.success) return reply.code(400).send({ error: 'Dados de atualização inválidos.' });
+    if (!input.success) {
+      return reply.code(400).send({
+        error: 'Dados de atualização inválidos.',
+        details: input.error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+    if (input.data.whatsapp !== undefined && !isValidBrazilianPhone(input.data.whatsapp)) {
+      return reply.code(400).send({ error: 'Informe um número de WhatsApp válido com DDD.' });
+    }
     const previous = await prisma.lead.findUnique({ where: { id: request.params.id } });
     if (!previous) return reply.code(404).send({ error: 'Contato não encontrado para atualização.' });
 
@@ -691,7 +709,19 @@ export async function buildApp() {
         newValue: input.data.assignedToId || 'Sem responsável',
       });
     }
-    await prisma.lead.update({ where: { id: previous.id }, data: input.data });
+    const { email, whatsapp, state, professionalProfile, ...otherUpdates } = input.data;
+    await prisma.lead.update({
+      where: { id: previous.id },
+      data: {
+        ...otherUpdates,
+        ...(email !== undefined ? { email: email || null } : {}),
+        ...(whatsapp !== undefined
+          ? { whatsapp, normalizedWhatsapp: normalizePhone(whatsapp) }
+          : {}),
+        ...(state !== undefined ? { state: state.toUpperCase() } : {}),
+        ...(professionalProfile !== undefined ? { professionalProfile: professionalProfile || null } : {}),
+      },
+    });
 
     let historySaved = true;
     if (history.length) {
