@@ -6,6 +6,7 @@ import bcrypt from 'bcrypt';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { env } from './config/env.ts';
+import { isImageDataUri, ProductImageStorageError, uploadProductImages } from './services/productImageStorage.ts';
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -442,7 +443,7 @@ export async function buildApp() {
     (image) => image.length <= 500
       || (
         image.length <= 1_400_000
-        && /^data:image\/(?:jpeg|png|webp|gif|avif);base64,[A-Za-z0-9+/]+={0,2}$/.test(image)
+        && isImageDataUri(image)
       ),
     'Imagem deve ser uma URL de até 500 caracteres ou uma imagem JPG, PNG, WebP, GIF ou AVIF de até 1 MB.',
   );
@@ -469,20 +470,32 @@ export async function buildApp() {
       });
     }
 
-    const normalizedImages = [...new Set((input.data.images || []).map((item) => item.trim()).filter(Boolean))];
-    const product = await prisma.shopProduct.create({
-      data: {
-        name: input.data.name,
-        subtitle: input.data.subtitle || null,
-        description: input.data.description || null,
-        price: input.data.price || '',
-        imageUrl: input.data.imageUrl || normalizedImages[0] || null,
-        images: normalizedImages.length ? normalizedImages : input.data.imageUrl ? [input.data.imageUrl] : [],
-        active: input.data.active,
-        sortOrder: input.data.sortOrder,
-      },
-    });
-    return reply.code(201).send(product);
+    try {
+      const imageInputs = input.data.images.length
+        ? input.data.images
+        : input.data.imageUrl
+          ? [input.data.imageUrl]
+          : [];
+      const images = await uploadProductImages(imageInputs);
+      const product = await prisma.shopProduct.create({
+        data: {
+          name: input.data.name,
+          subtitle: input.data.subtitle || null,
+          description: input.data.description || null,
+          price: input.data.price || '',
+          imageUrl: images[0] || null,
+          images,
+          active: input.data.active,
+          sortOrder: input.data.sortOrder,
+        },
+      });
+      return reply.code(201).send(product);
+    } catch (error) {
+      if (error instanceof ProductImageStorageError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
+      throw error;
+    }
   });
 
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/api/shop/admin/products/:id', {
@@ -510,12 +523,19 @@ export async function buildApp() {
     }
 
     try {
-      const normalizedImages = input.data.images ? [...new Set(input.data.images.map((item) => item.trim()).filter(Boolean))] : undefined;
+      const imageInputs = input.data.images ?? (
+        input.data.imageUrl === undefined
+          ? undefined
+          : input.data.imageUrl
+            ? [input.data.imageUrl]
+            : []
+      );
+      const images = imageInputs === undefined ? undefined : await uploadProductImages(imageInputs);
       const payload = {
         ...input.data,
         price: input.data.price ?? undefined,
-        imageUrl: input.data.imageUrl ?? undefined,
-        images: normalizedImages,
+        imageUrl: images === undefined ? input.data.imageUrl ?? undefined : images[0] ?? null,
+        images,
       };
       const product = await prisma.shopProduct.update({
         where: { id: request.params.id },
@@ -523,6 +543,9 @@ export async function buildApp() {
       });
       return product;
     } catch (error) {
+      if (error instanceof ProductImageStorageError) {
+        return reply.code(error.statusCode).send({ error: error.message });
+      }
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         return reply.code(404).send({ error: 'Produto não encontrado.' });
       }
