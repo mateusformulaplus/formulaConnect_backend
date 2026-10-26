@@ -45,6 +45,7 @@ export async function uploadProductImage(image: string): Promise<string> {
     `/storage/v1/object/img/${objectPath.split('/').map(encodeURIComponent).join('/')}`,
     env.SUPABASE_URL,
   );
+  storageUrl.searchParams.set('cacheControl', '31536000');
 
   let response: Response;
   try {
